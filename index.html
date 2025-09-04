@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Đường tròn lượng giác — sector & mũi tên mượt</title>
+  <style>
+    :root{ --panel-w: 360px; }
+    body{ font-family:'Segoe UI',Tahoma,sans-serif; background:linear-gradient(135deg,#e8f2ff 0%,#fefefa 100%); margin:0;padding:20px;user-select:none }
+    h1 {
+  margin: 0 0 12px;
+  text-align: center;
+  font-weight: 700;        /* đậm */
+  color: #1565c0;          /* xanh */
+}
+
+    #layout{display:flex;gap:16px;align-items:flex-start;justify-content:center}
+    #leftCol{
+      width:var(--panel-w); background:#ffffffcc;border:1px solid #e6ecf2;border-radius:12px;
+      box-shadow:0 4px 10px rgba(0,0,0,.06); padding:14px;display:flex;flex-direction:column;gap:10px
+    }
+    #rightCol{display:flex;flex-direction:column;align-items:center}
+    canvas{
+      background:#fff;border:2px solid #4caf5055;border-radius:12px;
+      box-shadow:0 4px 10px rgba(0,0,0,.1);margin-top:4px; cursor:pointer;transition:transform .15s
+    }
+    canvas:active{transform:scale(.98)}
+    #controls{display:flex;flex-direction:column;gap:10px}
+    .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .row label{font-weight:600}
+    .row input[type=number], .row select, .row input[type=text]{
+      width:120px;padding:6px;border:1px solid #ccc;border-radius:8px;font-size:1rem;text-align:center;outline:none
+    }
+    .row input:focus, .row select:focus {
+      box-shadow:0 0 4px rgba(25,118,210,0.5);
+      border-color:#1976d2;
+    }
+    #angleLabel{
+      font-weight:700;font-size:1.1rem;
+      padding:4px 10px;border-radius:8px;
+      background:#e3f2fd;color:#1565c0;
+      text-align:center
+    }
+    button{
+      padding:8px 18px;border:none;background:#4CAF50;color:#fff;border-radius:8px;font-size:1rem;cursor:pointer;transition:background .2s,box-shadow .2s
+    }
+    button:hover{background:#45a049;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+    .kv{display:flex;justify-content:space-between;gap:8px}
+    .kv .label{font-weight:600}
+    .warn{color:#e53935;font-weight:700}
+    #identityBox{margin-top:4px;font-style:italic;color:#444;text-align:left;min-height:22px}
+  </style>
+</head>
+<body>
+  <h1>GIÁ TRỊ LƯỢNG GIÁC CỦA GÓC LIÊN QUAN ĐẶC BIỆT</h1>
+  <div id="layout">
+    <aside id="leftCol">
+      <div id="controls">
+        <div class="row">
+          <div>
+            <label for="angleInput">Độ (°):</label>
+            <input type="number" id="angleInput" value="0" step="1">
+          </div>
+          <div>
+            <label for="radInput">Radian:</label>
+            <input type="text" id="radInput" value="0" placeholder="π/3, 2π/3, a·π/180, 1.57">
+          </div>
+        </div>
+        <div class="row"><span id="angleLabel">Góc hiện tại: 0° (0 rad)</span></div>
+        <div class="row">
+          <label for="modeSelect">Hai góc liên quan đặc biệt:</label>
+          <select id="modeSelect">
+            <option value="none">1 góc (mặc định)</option>
+            <option value="opposite">Góc đối (α &amp;–α)</option>
+            <option value="supplementary">Góc bù (α &amp; π − α)</option>
+            <option value="explementary">Hơn kém π (α &amp; α + π)</option>
+            <option value="complementary">Góc phụ (α &amp; π/2 − α)</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="showSecond" checked> Hiện góc phụ
+          </label>
+        </div>
+        <button id="resetBtn">Đưa về 0°</button>
+      </div>
+      <div style="margin-top:8px">
+        <div class="kv"><span class="label">sin(α)</span><span id="sinValL">0.000</span></div>
+        <div class="kv"><span class="label">cos(α)</span><span id="cosValL">1.000</span></div>
+        <div class="kv"><span class="label">tan(α)</span><span id="tanValL">0.000</span></div>
+        <div class="kv"><span class="label">cot(α)</span><span id="cotValL">∞</span></div>
+      </div>
+      <div id="identityBox"></div>
+    </aside>
+    <section id="rightCol"><canvas id="circleCanvas" width="700" height="540"></canvas></section>
+  </div>
+
+  <script>
+    const canvas=document.getElementById('circleCanvas');
+    const ctx=canvas.getContext('2d');
+    const angleInput=document.getElementById('angleInput');
+    const radInput=document.getElementById('radInput');
+    const angleLabel=document.getElementById('angleLabel');
+    const resetBtn=document.getElementById('resetBtn');
+    const modeSelect=document.getElementById('modeSelect');
+    const showSecond=document.getElementById('showSecond');
+    const identityBox=document.getElementById('identityBox');
+
+    const sinValL=document.getElementById('sinValL');
+    const cosValL=document.getElementById('cosValL');
+    const tanValL=document.getElementById('tanValL');
+    const cotValL=document.getElementById('cotValL');
+
+    const centerX=canvas.width/2,centerY=canvas.height/2,radius=210;
+    const innerR=radius*0.22;
+    let totalAngle=0,displayAngle=0,dragging=false,lastRaw=0,ignoreSync=false,animating=false;
+
+    const colorSin1='#ff9800', colorCos1='#43a047';
+    const colorSin2='#ff5722', colorCos2='#3f51b5';
+    const colorTanCot='#9c27b0';
+
+    function drawText(text,x,y,align='left',color='#000'){
+      ctx.textAlign=align; ctx.fillStyle=color; ctx.fillText(text,x,y+4); ctx.textAlign='left';
+    }
+    function drawAngleSector(angleRad, primary=true){
+      if(Math.abs(angleRad) < 1e-6) return;
+      const fillColor = primary ? 'rgba(25,118,210,0.15)' : 'rgba(0,150,136,0.15)';
+      const strokeColor = primary ? '#1976d2' : '#009688';
+      let ang = angleRad;
+      if(Math.abs(ang) > Math.PI*2) ang = ang % (Math.PI*2);
+      const steps = Math.max(6, Math.min(400, Math.ceil(Math.abs(ang) / 0.03)));
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(centerX, centerY);
+      for(let i=0;i<=steps;i++){
+        const t = (i/steps) * ang;
+        const px = centerX + innerR * Math.cos(t);
+        const py = centerY - innerR * Math.sin(t);
+        ctx.lineTo(px, py);
+      }
+      ctx.closePath(); ctx.fillStyle = fillColor; ctx.fill();
+      ctx.beginPath();
+      for(let i=0;i<=steps;i++){
+        const t=(i/steps)*ang;
+        const px=centerX+innerR*Math.cos(t);
+        const py=centerY-innerR*Math.sin(t);
+        if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ctx.strokeStyle=strokeColor; ctx.lineWidth=1; ctx.stroke();
+      // arrow
+      const lastT = ang, prevT = ang - (ang/steps);
+      const lastX=centerX+innerR*Math.cos(lastT), lastY=centerY-innerR*Math.sin(lastT);
+      const prevX=centerX+innerR*Math.cos(prevT), prevY=centerY-innerR*Math.sin(prevT);
+      let dirX=lastX-prevX, dirY=lastY-prevY;
+      const L=Math.hypot(dirX,dirY)||1; dirX/=L; dirY/=L;
+      const ax=lastX, ay=lastY, arrowLen=12, wing=7;
+      const bx=ax-dirX*arrowLen, by=ay-dirY*arrowLen;
+      ctx.strokeStyle=strokeColor; ctx.fillStyle=strokeColor; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(ax,ay); ctx.stroke();
+      const angDir=Math.atan2(dirY,dirX);
+      ctx.beginPath(); ctx.moveTo(ax,ay);
+      ctx.lineTo(ax-Math.cos(angDir+Math.PI/6)*wing, ay-Math.sin(angDir+Math.PI/6)*wing);
+      ctx.lineTo(ax-Math.cos(angDir-Math.PI/6)*wing, ay-Math.sin(angDir-Math.PI/6)*wing);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      // α label
+      const midT = ang/2;
+      const tx = centerX + (innerR+22)*Math.cos(midT);
+      const ty = centerY - (innerR+22)*Math.sin(midT);
+      ctx.fillStyle = strokeColor; ctx.font = 'bold 18px Segoe UI,Tahoma';
+      if (primary) {
+        const label = totalAngle < 0 ? "−α" : "α";
+        ctx.fillText(label, tx, ty);
+      } else {
+        ctx.fillText(getSecondLabel(modeSelect.value), tx, ty);
+      }
+    }
+    function drawSingle(angleDeg, primary=true, labelSuffix=''){
+      const angleRad = angleDeg * Math.PI/180;
+      const cos = Math.cos(angleRad), sin = Math.sin(angleRad);
+      const Mx = centerX + radius * cos, My = centerY - radius * sin;
+      const Hx = Mx, Hy = centerY, Kx = centerX, Ky = My;
+      drawAngleSector(angleRad, primary);
+      ctx.beginPath(); ctx.moveTo(centerX, centerY); ctx.lineTo(Mx, My);
+      ctx.strokeStyle = primary ? '#1976d2' : '#009688'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.arc(Mx, My, 6, 0, 2*Math.PI);
+      ctx.fillStyle = primary ? '#e53935' : '#00bcd4'; ctx.fill();
+      ctx.lineWidth=2; ctx.strokeStyle='#fff'; ctx.stroke();
+      drawText('M'+labelSuffix, Mx+14, My-10);
+      const {theta1,theta2}=getThetaLabels(modeSelect.value);
+      const thetaLabel=primary?theta1:theta2;
+      // cos projection
+      ctx.beginPath(); ctx.moveTo(Mx, My); ctx.lineTo(Mx, centerY);
+      ctx.strokeStyle = primary?colorCos1:colorCos2; ctx.setLineDash([5,3]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(Hx, Hy, 4, 0, 2*Math.PI);
+      ctx.fillStyle = primary?colorCos1:colorCos2; ctx.fill();
+      drawText(`cos(${thetaLabel}) = ${cos.toFixed(3)}`, Hx+12, Hy+18,'left',primary?colorCos1:colorCos2);
+      // sin projection
+      ctx.beginPath(); ctx.moveTo(Mx, My); ctx.lineTo(centerX, My);
+      ctx.strokeStyle = primary?colorSin1:colorSin2; ctx.setLineDash([5,3]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(Kx, Ky, 4, 0, 2*Math.PI);
+      ctx.fillStyle = primary?colorSin1:colorSin2; ctx.fill();
+      drawText(`sin(${thetaLabel}) = ${sin.toFixed(3)}`, Kx+24, Ky-12,'left',primary?colorSin1:colorSin2);
+      return {sin, cos};
+    }
+    function getSecondAngle(deg, mode){
+      switch(mode){
+        case 'opposite': return -deg;
+        case 'supplementary': return 180 - deg;
+        case 'explementary': return deg + 180;
+        case 'complementary': return 90 - deg;
+        default: return null;
+      }
+    }
+    function getIdentity(mode){
+      switch(mode){
+        case 'opposite':return 'sin(-α) = -sinα,  cos(-α) = cosα';
+        case 'supplementary':return 'sin(π−α) = sinα,  cos(π−α) = -cosα';
+        case 'explementary':return 'sin(π+α) = -sinα,  cos(π+α) = -cosα';
+        case 'complementary':return 'sin(π/2−α) = cosα,  cos(π/2−α) = sinα';
+        default:return '';
+      }
+    }
+    function getSecondLabel(mode){
+      switch(mode){
+        case 'opposite': return '−α';
+        case 'supplementary': return 'π−α';
+        case 'explementary': return 'π+α';
+        case 'complementary': return 'π/2−α';
+        default: return "α₂";
+      }
+    }
+    function getThetaLabels(mode){
+      const baseLabel = totalAngle < 0 ? "−α" : "α";
+      switch(mode){
+        case 'opposite':return {theta1:baseLabel,theta2:(baseLabel==="α"?"−α":"α")};
+        case 'supplementary':return {theta1:baseLabel,theta2:"π−"+baseLabel};
+        case 'explementary':return {theta1:baseLabel,theta2:"π+"+baseLabel};
+        case 'complementary':return {theta1:baseLabel,theta2:"π/2−"+baseLabel};
+        default:return {theta1:baseLabel,theta2:"α₂"};
+      }
+    }
+    function drawScene(angleDeg){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.beginPath(); ctx.arc(centerX, centerY, radius, 0, 2*Math.PI);
+      ctx.strokeStyle='#333'; ctx.lineWidth=2; ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(centerX-radius-25,centerY);ctx.lineTo(centerX+radius+25,centerY);
+      ctx.moveTo(centerX+radius+18,centerY-7);ctx.lineTo(centerX+radius+25,centerY);ctx.lineTo(centerX+radius+18,centerY+7);
+      ctx.moveTo(centerX,centerY-radius-25);ctx.lineTo(centerX,centerY+radius+25);
+      ctx.moveTo(centerX-7,centerY-radius-18);ctx.lineTo(centerX,centerY-radius-25);ctx.lineTo(centerX+7,centerY-radius-18);
+      ctx.strokeStyle='#777';ctx.lineWidth=1;ctx.stroke();
+      ctx.font='15px Segoe UI,Tahoma,sans-serif';
+      ctx.fillStyle=colorCos1; ctx.fillText('cos', centerX+radius+35, centerY+5);
+      ctx.fillStyle=colorSin1; ctx.fillText('sin', centerX-15, centerY-radius-35);
+      ctx.beginPath();ctx.arc(centerX,centerY,4,0,2*Math.PI);ctx.fillStyle='#000';ctx.fill();
+      drawText('O',centerX-14,centerY+16);
+      const res1 = drawSingle(angleDeg, true,'');
+      const secondAngleDeg = getSecondAngle(angleDeg, modeSelect.value);
+      let res2=null;
+      if(secondAngleDeg!==null && modeSelect.value!=='none' && showSecond.checked){
+        res2=drawSingle(secondAngleDeg,false,"'");
+      }
+      const EPS=1e-8;
+      const tan1=Math.abs(res1.cos)<EPS?'∞':(res1.sin/res1.cos).toFixed(3);
+      const cot1=Math.abs(res1.sin)<EPS?'∞':(res1.cos/res1.sin).toFixed(3);
+      const {theta1,theta2}=getThetaLabels(modeSelect.value);
+      ctx.fillStyle=colorSin1; ctx.fillText(`sin(${theta1}) = ${res1.sin.toFixed(3)}`,20,canvas.height-120);
+      ctx.fillStyle=colorCos1; ctx.fillText(`cos(${theta1}) = ${res1.cos.toFixed(3)}`,20,canvas.height-100);
+      ctx.fillStyle=colorTanCot;
+      drawText(`tan(${theta1}) = ${tan1}`,20,canvas.height-80,'left',tan1==='∞'?'red':colorTanCot);
+      drawText(`cot(${theta1}) = ${cot1}`,20,canvas.height-60,'left',cot1==='∞'?'red':colorTanCot);
+      if(res2){
+        const rightX=canvas.width-20;
+        ctx.fillStyle=colorSin2; ctx.textAlign='right';
+        ctx.fillText(`sin(${theta2}) = ${res2.sin.toFixed(3)}`, rightX, canvas.height-120);
+        ctx.fillStyle=colorCos2;
+        ctx.fillText(`cos(${theta2}) = ${res2.cos.toFixed(3)}`, rightX, canvas.height-100);
+        const tan2=Math.abs(res2.cos)<EPS?'∞':(res2.sin/res2.cos).toFixed(3);
+        const cot2=Math.abs(res2.sin)<EPS?'∞':(res2.cos/res2.sin).toFixed(3);
+        ctx.fillStyle=colorTanCot;
+        drawText(`tan(${theta2}) = ${tan2}`,rightX,canvas.height-80,'right',tan2==='∞'?'red':colorTanCot);
+        drawText(`cot(${theta2}) = ${cot2}`,rightX,canvas.height-60,'right',cot2==='∞'?'red':colorTanCot);
+        ctx.textAlign='left';
+      }
+      identityBox.textContent=getIdentity(modeSelect.value);
+    }
+    function gcd(a,b){return b?gcd(b,a%b):a;}
+    function degreeToPiFrac(deg){
+      if(deg===0)return"0";
+      const g=gcd(Math.abs(deg),180);
+      const num=deg/g, den=180/g;
+      if(den===1)return`${num}π`;
+      if(num===1)return`π/${den}`;
+      return`${num}π/${den}`;
+    }
+    function animateTo(target){
+      if(animating)return;
+      animating=true;
+      function step(){
+        const diff=target-displayAngle;
+        if(Math.abs(diff)<0.5){
+          displayAngle=target; animating=false;
+          updateDisplay(true); return;
+        }
+        displayAngle+=diff*0.2;
+        updateDisplay(true);
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+    function updateDisplay(skipAnim=false){
+      ignoreSync=true;
+      const deg=Math.round(totalAngle);
+      const radText=degreeToPiFrac(deg)||"0";
+      angleLabel.textContent=`Góc hiện tại: ${deg}° (${radText} rad)`;
+      angleInput.value=deg; radInput.value=radText;
+      ignoreSync=false;
+      drawScene(displayAngle);
+      if(!skipAnim && !dragging) animateTo(totalAngle);
+    }
+    angleInput.addEventListener('input',()=>{if(ignoreSync)return; totalAngle=parseFloat(angleInput.value)||0; updateDisplay();});
+    radInput.addEventListener('input',()=>{if(ignoreSync)return;
+      let val=radInput.value.trim(); if(!val){totalAngle=0;updateDisplay();return;}
+      if(val.includes("π")){
+        val=val.replace(/\s+/g,"").replace(/·/g,"*");
+        if(val.includes("/")){
+          const[numPart,denPart]=val.split("/");
+          const aStr=numPart.replace("π",""); const a=(aStr===""?1:parseFloat(aStr));
+          const b=parseFloat(denPart);
+          if(!isNaN(a)&&!isNaN(b)&&b!==0) totalAngle=(a/b)*180;
+        }else if(val.includes("*π")){
+          const[A,rest]=val.split("*π");
+          if(rest==="/180"&&!isNaN(parseFloat(A))) totalAngle=parseFloat(A);
+        }else totalAngle=180;
+      }else{
+        const rad=parseFloat(val);
+        totalAngle=isNaN(rad)?0:(rad*180/Math.PI);
+      }
+      updateDisplay();
+    });
+    function getPos(evt){
+      const rect=canvas.getBoundingClientRect();
+      const clientX=evt.touches?evt.touches[0].clientX:evt.clientX;
+      const clientY=evt.touches?evt.touches[0].clientY:evt.clientY;
+      return{x:clientX-rect.left,y:clientY-rect.top};
+    }
+    function rawAngleDeg(pos){
+      const dx=pos.x-centerX,dy=centerY-pos.y;
+      return Math.atan2(dy,dx)*180/Math.PI;
+    }
+    function onPointerDown(e){
+      const pos=getPos(e);
+      const Mx=centerX+radius*Math.cos(totalAngle*Math.PI/180);
+      const My=centerY-radius*Math.sin(totalAngle*Math.PI/180);
+      const dist=Math.hypot(pos.x-Mx,pos.y-My);
+      if(dist<=12){dragging=true;lastRaw=rawAngleDeg(pos);canvas.style.cursor='grabbing';e.preventDefault();}
+    }
+    function onPointerMove(e){
+      if(!dragging)return;
+      const pos=getPos(e),newRaw=rawAngleDeg(pos);
+      let diff=newRaw-lastRaw;
+      if(diff>180)diff-=360;if(diff<-180)diff+=360;
+      totalAngle+=diff; lastRaw=newRaw; displayAngle=totalAngle; updateDisplay(true); e.preventDefault();
+    }
+    function onPointerUp(){dragging=false;canvas.style.cursor='pointer';}
+    canvas.addEventListener('mousedown',onPointerDown);
+    canvas.addEventListener('mousemove',onPointerMove);
+    window.addEventListener('mouseup',onPointerUp);
+    canvas.addEventListener('touchstart',onPointerDown,{passive:false});
+    canvas.addEventListener('touchmove',onPointerMove,{passive:false});
+    window.addEventListener('touchend',onPointerUp);
+    resetBtn.addEventListener("click",()=>{totalAngle=0;updateDisplay();});
+    canvas.style.cursor='pointer'; updateDisplay();
+  </script>
+</body>
+</html>
